@@ -1,20 +1,26 @@
 """
-Comparison of CUSUM and Bayesian Online Change-Point Detection
-================================================================
+CUSUM vs Bayesian Online Change-Point Detection
+================================================
 
-This module provides a common analysis framework for comparing:
+Comparison of the classical CUSUM detector used in the companion
+repository and Bayesian Online Change-Point Detection (BOCD).
 
-1. Classical CUSUM-style change detection
-2. Bayesian Online Change-Point Detection (BOCD)
+Both methods are applied to the same log-transformed annual measles
+surveillance series.
 
-The two methods are applied to the same annual measles surveillance
-series.
+CUSUM:
+    - median baseline
+    - k = 0.3
+    - h = 1.5
 
-The goal is methodological comparison rather than treating the two
-methods as interchangeable detectors.
+BOCD:
+    - Normal-Gamma predictive model
+    - constant hazard
+    - posterior run-length distribution
 
-CUSUM produces a threshold-based signal, whereas BOCD produces a
-posterior distribution over run length.
+The purpose is methodological comparison:
+CUSUM provides a threshold-based alarm, whereas BOCD provides a
+probabilistic representation of uncertainty over the current run length.
 """
 
 from __future__ import annotations
@@ -35,6 +41,372 @@ from bocd import (
 
 
 # ---------------------------------------------------------------------
+# Project paths
+# ---------------------------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+DATA_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "measles_annual_counts.csv"
+)
+
+
+# ---------------------------------------------------------------------
+# CUSUM
+# ---------------------------------------------------------------------
+
+def cusum_detector(
+    values: np.ndarray,
+    k: float = 0.3,
+    h: float = 1.5,
+) -> pd.DataFrame:
+    """
+    Apply the standardized two-sided CUSUM procedure.
+
+    Parameters
+    ----------
+    values:
+        One-dimensional log-transformed observations.
+
+    k:
+        Reference/slack parameter.
+
+    h:
+        Decision threshold.
+
+    Returns
+    -------
+    DataFrame containing positive and negative CUSUM statistics
+    and the resulting alarm flag.
+
+    Notes
+    -----
+    The baseline is the median of the supplied series, following
+    the companion CUSUM project.
+    """
+
+    values = np.asarray(
+        values,
+        dtype=float,
+    )
+
+    if values.ndim != 1:
+        raise ValueError(
+            "values must be one-dimensional."
+        )
+
+    if len(values) == 0:
+        raise ValueError(
+            "values cannot be empty."
+        )
+
+    if not np.all(
+        np.isfinite(values)
+    ):
+        raise ValueError(
+            "values contain non-finite values."
+        )
+
+    if k < 0:
+        raise ValueError(
+            "k must be non-negative."
+        )
+
+    if h <= 0:
+        raise ValueError(
+            "h must be positive."
+        )
+
+    baseline = float(
+        np.median(values)
+    )
+
+    sd = float(
+        np.std(
+            values,
+            ddof=1,
+        )
+    )
+
+    if sd <= 0:
+        raise ValueError(
+            "The observations must have non-zero variance."
+        )
+
+    z = (
+        values - baseline
+    ) / sd
+
+    positive = np.zeros(
+        len(values),
+        dtype=float,
+    )
+
+    negative = np.zeros(
+        len(values),
+        dtype=float,
+    )
+
+    alarms = np.zeros(
+        len(values),
+        dtype=int,
+    )
+
+    for i, value in enumerate(z):
+
+        previous_positive = (
+            positive[i - 1]
+            if i > 0
+            else 0.0
+        )
+
+        previous_negative = (
+            negative[i - 1]
+            if i > 0
+            else 0.0
+        )
+
+        positive[i] = max(
+            0.0,
+            previous_positive
+            + value
+            - k,
+        )
+
+        negative[i] = min(
+            0.0,
+            previous_negative
+            + value
+            + k,
+        )
+
+        if (
+            positive[i] >= h
+            or abs(negative[i]) >= h
+        ):
+
+            alarms[i] = 1
+
+            # Reset after an alarm.
+            positive[i] = 0.0
+            negative[i] = 0.0
+
+    return pd.DataFrame(
+        {
+            "cusum_positive":
+                positive,
+
+            "cusum_negative":
+                negative,
+
+            "cusum_alarm":
+                alarms,
+        }
+    )
+
+
+# ---------------------------------------------------------------------
+# BOCD
+# ---------------------------------------------------------------------
+
+def run_bocd(
+    log_cases: np.ndarray,
+    lam: float = 6.0,
+) -> pd.DataFrame:
+    """
+    Run BOCD and return posterior run-length summaries.
+    """
+
+    model = build_default_model(
+        log_cases
+    )
+
+    R, _ = bocd(
+        data=log_cases,
+        model=model,
+        lam=lam,
+    )
+
+    return pd.DataFrame(
+        {
+            "bocd_expected_run_length":
+                expected_run_length(R),
+
+            "bocd_map_run_length":
+                map_run_length(R),
+
+            "bocd_run_length_0":
+                R[
+                    1:,
+                    0
+                ],
+        }
+    )
+
+
+# ---------------------------------------------------------------------
+# Complete comparison
+# ---------------------------------------------------------------------
+
+def run_comparison(
+    data_path: str | Path = DATA_PATH,
+    cusum_k: float = 0.3,
+    cusum_h: float = 1.5,
+    bocd_lam: float = 6.0,
+) -> pd.DataFrame:
+    """
+    Run CUSUM and BOCD on the same measles surveillance series.
+    """
+
+    df = load_measles_data(
+        data_path
+    )
+
+    cases = df[
+        "cases"
+    ].to_numpy(
+        dtype=float
+    )
+
+    log_cases = preprocess_counts(
+        cases
+    )
+
+    # ---------------------------------------------------------------
+    # CUSUM
+    # ---------------------------------------------------------------
+
+    cusum_results = cusum_detector(
+        log_cases,
+        k=cusum_k,
+        h=cusum_h,
+    )
+
+    # ---------------------------------------------------------------
+    # BOCD
+    # ---------------------------------------------------------------
+
+    bocd_results = run_bocd(
+        log_cases,
+        lam=bocd_lam,
+    )
+
+    # ---------------------------------------------------------------
+    # Combine
+    # ---------------------------------------------------------------
+
+    comparison = df.copy()
+
+    comparison[
+        "log_cases"
+    ] = log_cases
+
+    comparison[
+        "cusum_positive"
+    ] = cusum_results[
+        "cusum_positive"
+    ]
+
+    comparison[
+        "cusum_negative"
+    ] = cusum_results[
+        "cusum_negative"
+    ]
+
+    comparison[
+        "cusum_alarm"
+    ] = cusum_results[
+        "cusum_alarm"
+    ]
+
+    comparison[
+        "bocd_expected_run_length"
+    ] = bocd_results[
+        "bocd_expected_run_length"
+    ]
+
+    comparison[
+        "bocd_map_run_length"
+    ] = bocd_results[
+        "bocd_map_run_length"
+    ]
+
+    comparison[
+        "bocd_run_length_0"
+    ] = bocd_results[
+        "bocd_run_length_0"
+    ]
+
+    return comparison
+
+
+# ---------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------
+
+if __name__ == "__main__":
+
+    results = run_comparison()
+
+    print(
+        "\nCUSUM vs Bayesian Online "
+        "Change-Point Detection\n"
+    )
+
+    print(
+        "CUSUM parameters: "
+        "k=0.3, h=1.5"
+    )
+
+    print(
+        "BOCD prior expected "
+        "run length: lambda=6.0\n"
+    )
+
+    print(
+        results.to_string(
+            index=False
+        )
+    )
+
+    print(
+        "\nCUSUM alarm years:"
+    )
+
+    alarm_years = results.loc[
+        results["cusum_alarm"] == 1,
+        "year",
+    ].tolist()
+
+    print(
+        alarm_years
+        if alarm_years
+        else "None"
+    )
+
+    print(
+        "\nBOCD years with the "
+        "smallest expected run length:"
+    )
+
+    print(
+        results[
+            [
+                "year",
+                "bocd_expected_run_length",
+                "bocd_map_run_length",
+            ]
+        ]
+        .sort_values(
+            "bocd_expected_run_length"
+        )
+        .head(5)
+        .to_string(
+            index=False
+        )
+    )# ---------------------------------------------------------------------
 # Project paths
 # ---------------------------------------------------------------------
 
