@@ -1,25 +1,258 @@
 Bayesian Online Change-Point Detection for Measles Surveillance
 
-This repository implements a Bayesian Online Change-Point Detection (BOCD) framework for annual measles surveillance data.
+A reproducible Bayesian extension of a classical CUSUM change-point detection project, applying Bayesian Online Change-Point Detection (BOCD) to annual measles surveillance counts.
 
-The project extends a classical CUSUM-based change-point analysis toward sequential Bayesian predictive inference, providing a probabilistic representation of the time since the most recent change-point rather than a binary alarm.
+The project implements the framework of Adams and MacKay (2007) and reframes sequential change-point detection in terms of a posterior distribution over the run length, rather than a binary threshold-based alarm.
 
-Research motivation
+Motivation
 
-Classical change-point methods such as CUSUM can identify unusual observations using a threshold-based decision rule. However, they do not directly provide a posterior distribution over possible change locations.
+The companion project,
 
-BOCD addresses this from a Bayesian perspective by maintaining, at every time point, a posterior distribution over the run length:
+"CUSUM Change-Point Detection" (https://github.com/NasrinShirmohamadi/cusum-change-point-detection),
 
-«the number of observations since the most recent change-point.»
+uses a classical cumulative-sum statistic to identify anomalous observations in annual measles surveillance data.
 
-This provides a richer representation of uncertainty and allows quantities such as the posterior expected run length and MAP run length to be examined over time.
+CUSUM provides a useful threshold-based detection mechanism, but its output is essentially a binary decision:
 
-The project is motivated by broader research interests in:
+«Has the cumulative statistic crossed the detection threshold?»
 
-- Bayesian predictive inference
-- uncertainty-aware machine learning
-- sequential statistical inference
-- change-point detection
+BOCD provides a complementary Bayesian perspective.
+
+At each time point, BOCD maintains a posterior distribution
+
+[
+P(r_t \mid x_{1:t}),
+]
+
+where r_t is the time since the most recent change-point.
+
+This provides information about uncertainty in the current regime and allows the inferred run length to evolve sequentially as new observations arrive.
+
+Research question
+
+The central methodological question is:
+
+«How does Bayesian posterior run-length inference complement classical threshold-based CUSUM detection in sequential infectious-disease surveillance?»
+
+The project is intended as a methodological bridge between classical statistical process monitoring and modern predictive Bayesian inference.
+
+Data
+
+The example uses annual measles surveillance counts for 2010–2025.
+
+Year| Reported cases
+2010| 63
+2011| 220
+2012| 55
+2013| 187
+2014| 667
+2015| 188
+2016| 86
+2017| 120
+2018| 375
+2019| 1274
+2020| 13
+2021| 49
+2022| 121
+2023| 59
+2024| 285
+2025| 2289
+
+The observations are log-transformed before fitting the continuous Normal-Gamma predictive model used by BOCD.
+
+Method
+
+1. Bayesian Online Change-Point Detection
+
+The implementation follows:
+
+«Adams, R. P. & MacKay, D. J. C. (2007). Bayesian Online Changepoint Detection. arXiv:0710.3742.»
+
+For each observation, BOCD updates the posterior distribution over possible run lengths.
+
+The implementation uses a conjugate Normal-Gamma predictive model, giving a Student-t predictive distribution after marginalization.
+
+The core quantities are:
+
+- posterior probability of each run length;
+- expected run length;
+- MAP run length.
+
+The constant hazard function is
+
+[
+H(r)=\frac{1}{\lambda},
+]
+
+where \lambda is the prior expected run length.
+
+The default comparison uses:
+
+lambda = 6
+
+Sensitivity analysis evaluates:
+
+lambda = 4, 6, 8, 10
+
+2. CUSUM
+
+The comparison reproduces the main settings of the companion CUSUM project:
+
+Transformation: log(cases)
+Baseline: median
+Scale: sample standard deviation
+k: 0.3
+h: 1.5
+Reset after threshold crossing: no
+
+CUSUM produces a binary alarm when either the positive or negative cumulative statistic exceeds the specified threshold.
+
+CUSUM vs BOCD
+
+The two methods answer related but different questions.
+
+CUSUM| BOCD
+Classical sequential detector| Bayesian sequential detector
+Threshold-based| Posterior-based
+Binary alarm| Distribution over run lengths
+Uses cumulative statistic| Uses sequential Bayesian updating
+Detection threshold h| Prior hazard 1/\lambda
+Limited uncertainty representation| Explicit posterior uncertainty
+
+The purpose of this project is not to claim that BOCD universally outperforms CUSUM.
+
+Instead, the comparison illustrates how Bayesian sequential inference can provide richer information about uncertainty and regime duration.
+
+Repository structure
+
+bayesian-online-change-point-detection/
+│
+├── bocd.py
+├── compare_cusum_bocd.py
+├── sensitivity_analysis.py
+├── plot_comparison.py
+├── requirements.txt
+├── README.md
+│
+├── data/
+│   └── measles_annual_counts.csv
+│
+└── figures/
+    └── cusum_vs_bocd.png
+
+Installation
+
+Clone the repository and install the required dependencies:
+
+pip install -r requirements.txt
+
+Run BOCD
+
+python bocd.py
+
+Compare CUSUM and BOCD
+
+python compare_cusum_bocd.py
+
+The comparison produces year-by-year summaries including:
+
+- reported cases;
+- log-transformed observations;
+- CUSUM statistics;
+- CUSUM alarm;
+- BOCD expected run length;
+- BOCD MAP run length.
+
+Sensitivity analysis
+
+To examine the effect of the prior expected run length:
+
+python sensitivity_analysis.py
+
+The analysis evaluates:
+
+lambda = 4
+lambda = 6
+lambda = 8
+lambda = 10
+
+This is important because Bayesian change-point inference depends on prior assumptions about the expected duration of a regime.
+
+Visualization
+
+Generate the main comparison figure with:
+
+python plot_comparison.py
+
+The resulting figure contains:
+
+1. Annual measles surveillance counts with CUSUM alarms.
+2. BOCD expected run length over time.
+
+Important interpretation note
+
+With a constant hazard, the posterior probability of run length zero is tied directly to the hazard specification and therefore should not be interpreted as an independent data-driven change-point score.
+
+For this reason, the main BOCD visualization focuses on the posterior expected run length and MAP run length.
+
+The project also does not claim that the BOCD output is calibrated in a formal statistical sense. Calibration assessment would require additional simulation or posterior predictive validation.
+
+Limitations
+
+Several extensions remain possible.
+
+Count-specific observation models
+
+The current BOCD implementation applies a Normal-Gamma predictive model to log-transformed counts.
+
+A natural extension would be to develop a count-specific predictive model, such as a Poisson-Gamma or Negative-Binomial formulation.
+
+Hierarchical surveillance models
+
+The current analysis treats the annual series as a single sequence.
+
+A more realistic surveillance model could introduce hierarchical structure across:
+
+- geographic regions;
+- demographic groups;
+- surveillance systems;
+- disease subtypes.
+
+Non-constant hazard functions
+
+The current implementation uses a constant hazard.
+
+Future work could investigate hazard functions informed by:
+
+- epidemiological knowledge;
+- seasonal structure;
+- intervention periods;
+- covariates;
+- hierarchical information.
+
+Predictive Bayesian extensions
+
+A further research direction is to investigate how sequential Bayesian change-point inference relates to modern predictive-Bayesian approaches, including uncertainty-aware prediction under structured, non-exchangeable data.
+
+Relation to my research interests
+
+This project builds directly on my background in biostatistics, Bayesian modeling, longitudinal data analysis, and statistical machine learning.
+
+My master's research involved a Bayesian finite-mixture generalized linear mixed model fitted using MCMC for detecting anomalous outbreak years in infectious-disease surveillance data.
+
+The present project extends that statistical perspective from retrospective Bayesian modeling toward sequential predictive inference and uncertainty-aware machine learning.
+
+It is also aligned with my research interest in knowledge-driven and uncertainty-aware machine learning, particularly Bayesian inference for structured biomedical data.
+
+References
+
+Adams, R. P., & MacKay, D. J. C. (2007).
+
+Bayesian Online Changepoint Detection.
+
+arXiv:0710.3742.
+
+https://arxiv.org/abs/0710.3742- change-point detection
 - structured and longitudinal data
 - probabilistic machine learning
 
