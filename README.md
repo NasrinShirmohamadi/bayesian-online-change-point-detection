@@ -1,30 +1,4 @@
-"""
-Bayesian Online Change-Point Detection (BOCD)
-=============================================
-
-Bayesian Online Change-Point Detection for annual measles surveillance
-data, following Adams & MacKay (2007).
-
-This project extends a classical CUSUM change-point analysis of the
-same measles surveillance series toward Bayesian sequential predictive
-inference.
-
-Reference
----------
-Adams, R. P., & MacKay, D. J. C. (2007).
-Bayesian Online Changepoint Detection.
-arXiv:0710.3742
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-
-import numpy as np
-import pandas as pd
-
-from scipy.special import gammaln, logsumexp
-
+Refactor BOCD to load reproducible CSV data
 
 # ---------------------------------------------------------------------
 # Project paths
