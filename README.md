@@ -1,28 +1,212 @@
-Refactor BOCD to load reproducible CSV data
+Bayesian Online Change-Point Detection for Measles Surveillance
 
-# ---------------------------------------------------------------------
-# Project paths
-# ---------------------------------------------------------------------
+This repository implements a Bayesian Online Change-Point Detection (BOCD) framework for annual measles surveillance data.
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+The project extends a classical CUSUM-based change-point analysis toward sequential Bayesian predictive inference, providing a probabilistic representation of the time since the most recent change-point rather than a binary alarm.
 
-DATA_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "measles_annual_counts.csv"
-)
+Research motivation
 
+Classical change-point methods such as CUSUM can identify unusual observations using a threshold-based decision rule. However, they do not directly provide a posterior distribution over possible change locations.
 
-# ---------------------------------------------------------------------
-# Data loading and preprocessing
-# ---------------------------------------------------------------------
+BOCD addresses this from a Bayesian perspective by maintaining, at every time point, a posterior distribution over the run length:
 
-def load_measles_data(
-    path: str | Path = DATA_PATH,
-) -> pd.DataFrame:
-    """
-    Load and validate annual measles surveillance data.
+«the number of observations since the most recent change-point.»
 
+This provides a richer representation of uncertainty and allows quantities such as the posterior expected run length and MAP run length to be examined over time.
+
+The project is motivated by broader research interests in:
+
+- Bayesian predictive inference
+- uncertainty-aware machine learning
+- sequential statistical inference
+- change-point detection
+- structured and longitudinal data
+- probabilistic machine learning
+
+Data
+
+The analysis uses annual measles surveillance counts for 2010–2025.
+
+The data are stored separately in:
+
+data/measles_annual_counts.csv
+
+with the following structure:
+
+year,cases
+2010,63
+2011,220
+...
+2025,2289
+
+Keeping the data separate from the analysis code makes the workflow easier to inspect and reproduce.
+
+Method
+
+The implementation follows the Bayesian Online Change-Point Detection framework introduced by:
+
+Adams, R. P., & MacKay, D. J. C. (2007).
+Bayesian Online Changepoint Detection.
+arXiv:0710.3742.
+
+For the current implementation, the observed surveillance counts are transformed using:
+
+x_t = log(cases_t)
+
+A conjugate Normal-Gamma predictive model is then used for the transformed observations.
+
+After marginalization, the predictive distribution is Student-t.
+
+At each time point, the algorithm updates:
+
+P(r_t | x_1, ..., x_t)
+
+where "r_t" denotes the current run length.
+
+The implementation performs the recursive calculations in log space to improve numerical stability.
+
+Main outputs
+
+The analysis produces several posterior summaries.
+
+Expected run length
+
+E[r_t | x_1:t]
+
+The posterior expected time since the most recent change-point.
+
+A sharp decrease can indicate increasing posterior support for a recently initiated regime.
+
+MAP run length
+
+The most probable run length under the posterior distribution:
+
+argmax_r P(r_t | x_1:t)
+
+Run-length-zero posterior
+
+The posterior probability associated with a run length of zero is also retained.
+
+Because the current implementation uses a constant hazard function, this quantity should not be interpreted as an independent data-driven change-point score. The full run-length posterior and its summaries are therefore the primary diagnostics.
+
+Project structure
+
+bayesian-online-change-point-detection/
+│
+├── bocd.py
+├── requirements.txt
+├── README.md
+├── .gitignore
+│
+└── data/
+    └── measles_annual_counts.csv
+
+Installation
+
+Clone the repository and install the required Python packages:
+
+pip install -r requirements.txt
+
+Running the analysis
+
+Run:
+
+python bocd.py
+
+The script loads the measles surveillance data, applies the log transformation, runs BOCD, and prints the posterior run-length summaries.
+
+Prior specification
+
+The current implementation uses a weakly informative Normal-Gamma prior.
+
+The prior mean and variance are initialized using only the first five observations of the series.
+
+This avoids constructing the prior using the complete time series, including future observations.
+
+The prior expected run length is controlled through the hazard parameter:
+
+lam = 6.0
+
+Sensitivity to this assumption will be examined in a subsequent analysis.
+
+Limitations
+
+The current implementation is intentionally a methodological starting point rather than a final disease-surveillance model.
+
+Important limitations include:
+
+1. The surveillance counts are modeled after a log transformation using a continuous Normal-Gamma predictive model rather than a count-specific likelihood.
+
+2. The current hazard function is constant.
+
+3. The dataset is relatively short, containing annual observations from 2010 through 2025.
+
+4. The choice of prior and expected run length can influence posterior inference.
+
+5. The current implementation does not yet include formal simulation-based calibration or false-positive evaluation.
+
+These limitations motivate the planned extensions below.
+
+Planned extensions
+
+Future versions of the project will include:
+
+- comparison with the existing CUSUM implementation
+- side-by-side visualization of CUSUM and BOCD results
+- simulation-based validation
+- false-positive analysis
+- sensitivity analysis for the hazard parameter
+- investigation of alternative predictive models
+- exploration of hierarchical change-point structures
+- evaluation on additional surveillance series
+
+A particularly interesting extension is a hierarchical BOCD formulation in which multiple surveillance regions are modeled jointly. This would move the project toward structured, non-exchangeable sequential data and provide a closer connection to modern Bayesian predictive modeling.
+
+Relation to the CUSUM project
+
+This repository is designed as a Bayesian extension of the following project:
+
+"cusum-change-point-detection"
+
+The CUSUM implementation provides a classical threshold-based perspective, while the present repository investigates a sequential Bayesian formulation of the same general change-point problem.
+
+The two approaches are therefore complementary rather than interchangeable:
+
+CUSUM
+  │
+  └── threshold-based anomaly detection
+
+BOCD
+  │
+  └── posterior distribution over run length
+      │
+      ├── expected run length
+      └── MAP run length
+
+Reproducibility
+
+The project keeps the data, analysis code, and dependencies explicitly separated.
+
+The intended workflow is:
+
+measles_annual_counts.csv
+          │
+          ▼
+      preprocessing
+          │
+          ▼
+    Normal-Gamma model
+          │
+          ▼
+         BOCD
+          │
+          ▼
+ posterior run-length distribution
+          │
+          ├── expected run length
+          └── MAP run length
+
+The repository is intended as a reproducible research project and as a methodological demonstration of Bayesian sequential inference applied to real-world surveillance data.
     Expected CSV columns
     --------------------
     year
